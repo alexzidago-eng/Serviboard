@@ -10,6 +10,8 @@ import {
   X,
   Loader2,
   Briefcase,
+  Camera,
+  User,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
@@ -40,6 +42,7 @@ export default function ServiceBoard() {
   const [activeCat, setActiveCat] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [toast, setToast] = useState(null);
 
   const [form, setForm] = useState({
@@ -48,6 +51,7 @@ export default function ServiceBoard() {
     quartier: "",
     telephone: "",
     description: "",
+    photo_url: "",
   });
 
   const load = useCallback(async () => {
@@ -75,6 +79,42 @@ export default function ServiceBoard() {
     setTimeout(() => setToast(null), 2500);
   }
 
+  async function handlePhotoChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      showToast("Merci de choisir un fichier image.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("Image trop lourde (max 5 Mo).");
+      return;
+    }
+
+    setUploadingPhoto(true);
+    const ext = file.name.split(".").pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("avatars")
+      .upload(fileName, file, { cacheControl: "3600", upsert: false });
+
+    if (uploadError) {
+      console.error(uploadError);
+      showToast("Erreur lors de l'envoi de la photo.");
+      setUploadingPhoto(false);
+      return;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(fileName);
+
+    setForm((f) => ({ ...f, photo_url: publicUrlData.publicUrl }));
+    setUploadingPhoto(false);
+  }
+
   async function submitProvider(e) {
     e.preventDefault();
     if (!form.nom.trim() || !form.categorie || !form.quartier.trim() || !form.telephone.trim())
@@ -88,6 +128,7 @@ export default function ServiceBoard() {
         quartier: form.quartier.trim(),
         telephone: form.telephone.trim(),
         description: form.description.trim(),
+        photo_url: form.photo_url || null,
       },
     ]);
 
@@ -95,7 +136,14 @@ export default function ServiceBoard() {
       console.error(error);
       showToast("Erreur : impossible d'enregistrer le profil.");
     } else {
-      setForm({ nom: "", categorie: "", quartier: "", telephone: "", description: "" });
+      setForm({
+        nom: "",
+        categorie: "",
+        quartier: "",
+        telephone: "",
+        description: "",
+        photo_url: "",
+      });
       setShowForm(false);
       showToast("Profil publié avec succès.");
       load();
@@ -218,7 +266,18 @@ export default function ServiceBoard() {
         .card:hover { box-shadow: 0 10px 24px -14px rgba(30,42,34,0.3); transform: translateY(-2px); }
 
         .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-        .card-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; margin: 0; }
+        .card-identity { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+        .card-avatar {
+          width: 44px; height: 44px; border-radius: 50%; object-fit: cover;
+          flex-shrink: 0; border: 1px solid #E4DDCC; background: #FBEEDF;
+        }
+        .card-avatar-fallback {
+          width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+          background: #FBEEDF; color: #B5641E;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .card-name-wrap { min-width: 0; }
+        .card-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .card-cat {
           font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
           background: #FBEEDF; color: #B5641E; padding: 4px 9px; border-radius: 999px; white-space: nowrap;
@@ -267,6 +326,24 @@ export default function ServiceBoard() {
         }
         input.field-input:focus, select.field-input:focus, textarea.field-input:focus { border-color: #1E5C42; }
         textarea.field-input { resize: vertical; min-height: 72px; }
+
+        .photo-upload-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+        .photo-preview {
+          width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
+          border: 1px solid #E4DDCC; flex-shrink: 0; background: #FBEEDF;
+        }
+        .photo-preview-fallback {
+          width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
+          background: #FBEEDF; color: #B5641E;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .photo-upload-btn {
+          display: inline-flex; align-items: center; gap: 8px;
+          font-size: 13px; font-weight: 700; color: #1E5C42;
+          background: #FFFFFF; border: 1px solid #E4DDCC; border-radius: 8px;
+          padding: 9px 14px; cursor: pointer;
+        }
+        .photo-upload-btn input { display: none; }
 
         .submit-btn {
           width: 100%; background: #1E5C42; color: #FBF8F2; border: none;
@@ -366,7 +443,18 @@ export default function ServiceBoard() {
             {filtered.map((p) => (
               <div className="card" key={p.id}>
                 <div className="card-top">
-                  <h3 className="card-name">{p.nom}</h3>
+                  <div className="card-identity">
+                    {p.photo_url ? (
+                      <img className="card-avatar" src={p.photo_url} alt={p.nom} />
+                    ) : (
+                      <div className="card-avatar-fallback">
+                        <User size={20} />
+                      </div>
+                    )}
+                    <div className="card-name-wrap">
+                      <h3 className="card-name">{p.nom}</h3>
+                    </div>
+                  </div>
                   <span className="card-cat">{catLabel(p.categorie)}</span>
                 </div>
                 <div className="card-loc">
@@ -405,6 +493,34 @@ export default function ServiceBoard() {
               </button>
             </div>
             <form onSubmit={submitProvider}>
+              <div className="photo-upload-row">
+                {form.photo_url ? (
+                  <img className="photo-preview" src={form.photo_url} alt="Aperçu" />
+                ) : (
+                  <div className="photo-preview-fallback">
+                    <User size={26} />
+                  </div>
+                )}
+                <label className="photo-upload-btn">
+                  {uploadingPhoto ? (
+                    <>
+                      <Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} />
+                      Envoi...
+                    </>
+                  ) : (
+                    <>
+                      <Camera size={15} />
+                      Ajouter une photo
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoChange}
+                    disabled={uploadingPhoto}
+                  />
+                </label>
+              </div>
               <div className="field">
                 <label className="field-label">Nom complet</label>
                 <input
@@ -460,7 +576,7 @@ export default function ServiceBoard() {
                   placeholder="Décris ton expérience, tes disponibilités..."
                 />
               </div>
-              <button className="submit-btn" type="submit" disabled={saving}>
+              <button className="submit-btn" type="submit" disabled={saving || uploadingPhoto}>
                 {saving ? (
                   <>
                     <Loader2 size={16} style={{ animation: "spin 0.8s linear infinite" }} />
